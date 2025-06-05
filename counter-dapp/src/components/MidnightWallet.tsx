@@ -30,6 +30,7 @@
 
 import { createContext, useContext, useMemo, useState } from 'react';
 import type { Logger } from 'pino';
+import { getConfig } from '../config';
 import {
   concatMap,
   filter,
@@ -323,6 +324,31 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
     setTimeout(() => setToast(null), 3000);
   };
 
+  // Helper function to validate and normalize contract address format
+  const validateContractAddress = (address: string): string => {
+    if (!address) {
+      throw new Error('Contract address is required');
+    }
+    
+    // If it's already a proper hex address, return as is
+    if (address.startsWith('0x') && address.length === 66) {
+      return address;
+    }
+    
+    // If it's a legacy format from environment variable, try to convert
+    if (address.match(/^[a-fA-F0-9]{64}$/)) {
+      return '0x' + address;
+    }
+    
+    // If it's a simulated contract address, warn but allow it for fallback
+    if (address.startsWith('contract_')) {
+      logger.warn(`Using simulated contract address: ${address}. This will use fallback storage.`);
+      return address;
+    }
+    
+    throw new Error(`Invalid contract address format: ${address}. Expected hex-encoded address starting with 0x`);
+  };
+
   // Real wallet connection using DAppConnectorAPI
   const connectToWallet = async (): Promise<{ wallet: DAppConnectorWalletAPI; uris: ServiceUriConfig }> => {
     const COMPATIBLE_CONNECTOR_API_VERSION = "1.x";
@@ -387,8 +413,22 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
             : apis
         ),
         concatMap(async ({ walletConnectorAPI, connectorAPI }) => {
-          const uris = await connectorAPI.serviceUriConfig();
-          logger.info("Connected to wallet connector API and retrieved service configuration");
+          const walletUris = await connectorAPI.serviceUriConfig();
+          const config = getConfig();
+          
+          // Use wallet URIs if available, otherwise fall back to our config
+          const uris: ServiceUriConfig = {
+            proverServerUri: walletUris.proverServerUri || config.proofServerUrl,
+            indexerUri: walletUris.indexerUri || config.indexerUrl,
+            indexerWsUri: walletUris.indexerWsUri || config.indexerWsUrl,
+            nodeUri: walletUris.nodeUri || config.nodeUrl
+          };
+          
+          logger.info("Connected to wallet connector API and retrieved service configuration", { 
+            walletUris, 
+            fallbackConfig: config, 
+            finalUris: uris 
+          });
           return { wallet: walletConnectorAPI, uris };
         })
       )
@@ -420,26 +460,162 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
             }).then(r => r.json()),
         },
         publicDataProvider: {
-          // Indexer public data provider - with mock fallback for demo
-          getContractState: (contractAddress: string) => {
-            // Try real indexer first, fallback to mock for demo
-            return fetch(`${uris.indexerUri}/contract/${contractAddress}/state`)
-              .then(r => r.json())
-              .catch(() => {
-                // Fallback to mock storage for demo
-                const mockState = localStorage.getItem(`contract_state_${contractAddress}`);
-                return mockState ? JSON.parse(mockState) : null;
+          // Indexer public data provider - with correct GraphQL query for Midnight indexer
+          getContractState: async (contractAddress: string) => {
+            // Use proper GraphQL query for Midnight indexer based on actual schema
+            const query = `
+              query GetContractActions($contractAddress: HexEncoded!) {
+                contractAction(address: $contractAddress) {
+                  address
+                  state
+                  chainState
+                  transaction {
+                    hash
+                    block {
+                      height
+                    }
+                  }
+                }
+              }
+            `;
+            
+            try {
+              logger.info('Querying contract state via getContractState', { contractAddress });
+              
+              const response = await fetch(uris.indexerUri, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  query,
+                  variables: { contractAddress }
+                })
               });
+              
+              if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+              }
+              
+              const result = await response.json();
+              
+              if (result.errors) {
+                throw new Error(`GraphQL errors: ${result.errors.map((e: any) => e.message).join(', ')}`);
+              }
+              
+              // Return contract action with state data
+              const contractAction = result.data?.contractAction;
+              if (contractAction) {
+                return {
+                  address: contractAction.address,
+                  data: contractAction.state, // Map state to data for compatibility
+                  chainState: contractAction.chainState,
+                  transaction: contractAction.transaction
+                };
+              }
+              
+              return null;
+            } catch (error) {
+              logger.warn(`Failed to query contract state from indexer: ${error}. Using fallback.`);
+              // Fallback to mock storage for demo
+              const mockState = localStorage.getItem(`contract_state_${contractAddress}`);
+              return mockState ? JSON.parse(mockState) : null;
+            }
           },
-          queryContractState: (contractAddress: string) => {
-            // Try real indexer first, fallback to mock for demo
-            return fetch(`${uris.indexerUri}/contract/${contractAddress}/state`)
-              .then(r => r.json())
-              .catch(() => {
-                // Fallback to mock storage for demo
+          queryContractState: async (contractAddress: string) => {
+            // Use proper GraphQL query for Midnight indexer based on actual schema
+            const query = `
+              query GetContractActions($contractAddress: HexEncoded!) {
+                contractAction(address: $contractAddress) {
+                  address
+                  state
+                  chainState
+                  transaction {
+                    hash
+                    block {
+                      height
+                    }
+                  }
+                }
+              }
+            `;
+            
+            // Try multiple times with delays for newly deployed contracts
+            const maxRetries = 3;
+            const retryDelay = 2000; // 2 seconds
+            
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
+              try {
+                logger.info(`Querying contract state (attempt ${attempt}/${maxRetries})`, { contractAddress });
+                
+                const response = await fetch(uris.indexerUri, {
+                  method: 'POST',
+                  headers: {
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({
+                    query,
+                    variables: { contractAddress }
+                  })
+                });
+                
+                if (!response.ok) {
+                  throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                
+                if (result.errors) {
+                  throw new Error(`GraphQL errors: ${result.errors.map((e: any) => e.message).join(', ')}`);
+                }
+                
+                const contractAction = result.data?.contractAction;
+                if (contractAction) {
+                  logger.info('Successfully retrieved contract state from indexer', { 
+                    contractAddress, 
+                    contractAction 
+                  });
+                  
+                  // Return contract state in expected format
+                  return {
+                    address: contractAction.address,
+                    data: contractAction.state, // Map state to data for compatibility
+                    chainState: contractAction.chainState,
+                    transaction: contractAction.transaction
+                  };
+                }
+                
+                // If no contract found but no errors, it might still be indexing
+                if (attempt < maxRetries) {
+                  logger.info(`Contract not found in indexer, waiting ${retryDelay}ms before retry...`, { 
+                    contractAddress, 
+                    attempt 
+                  });
+                  await new Promise(resolve => setTimeout(resolve, retryDelay));
+                  continue;
+                }
+                
+                return null;
+                
+              } catch (error) {
+                logger.warn(`Attempt ${attempt} failed to query contract state from indexer: ${error}`, { 
+                  contractAddress, 
+                  error: error instanceof Error ? error.message : String(error) 
+                });
+                
+                if (attempt < maxRetries) {
+                  await new Promise(resolve => setTimeout(resolve, retryDelay));
+                  continue;
+                }
+                
+                // Final attempt failed, use fallback
+                logger.info('Using fallback storage for contract state');
                 const mockState = localStorage.getItem(`contract_state_${contractAddress}`);
                 return mockState ? JSON.parse(mockState) : null;
-              });
+              }
+            }
+            
+            return null;
           },
         },
         walletProvider: {
@@ -475,7 +651,10 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
     // });
 
     // Simulate real contract deployment with persistent state
-    const contractAddress = `contract_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // Generate a proper hex-encoded contract address for the Midnight indexer
+    const randomBytes = new Uint8Array(32);
+    crypto.getRandomValues(randomBytes);
+    const contractAddress = '0x' + Array.from(randomBytes).map(b => b.toString(16).padStart(2, '0')).join('');
     const txId = `deploy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const blockHeight = Math.floor(Date.now() / 1000);
     
@@ -574,21 +753,23 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
   };
 
   const joinExistingContract = async (providers: CounterProviders, contractAddress: string): Promise<DeployedCounterContract> => {
-    logger.info(`Joining existing contract at address: ${contractAddress}`);
+    // Validate and normalize contract address format
+    const validatedAddress = validateContractAddress(contractAddress);
+    logger.info(`Joining existing contract at address: ${validatedAddress}`);
     
     // In a real implementation, this would use:
     // import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
     // return await findDeployedContract(providers, {
-    //   contractAddress,
+    //   contractAddress: validatedAddress,
     //   contract: counterContract,
     //   privateStateId: 'counterPrivateState',
     //   initialPrivateState: { privateCounter: 0 },
     // });
 
     // Verify contract exists
-    const contractState = await providers.publicDataProvider.queryContractState(contractAddress);
+    const contractState = await providers.publicDataProvider.queryContractState(validatedAddress);
     if (!contractState) {
-      throw new Error(`Contract not found at address: ${contractAddress}`);
+      throw new Error(`Contract not found at address: ${validatedAddress}`);
     }
     
     // Initialize local private state if not exists
@@ -600,7 +781,7 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
     return {
       deployTxData: {
         public: {
-          contractAddress,
+          contractAddress: validatedAddress,
           txId: 'joined_contract',
           blockHeight: Math.floor(Date.now() / 1000),
         },
@@ -608,7 +789,7 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
       callTx: {
         increment: async () => {
           // Same implementation as deploy contract
-          const currentState = await providers.publicDataProvider.queryContractState(contractAddress);
+          const currentState = await providers.publicDataProvider.queryContractState(validatedAddress);
           const currentValue = currentState?.data?.round || 0;
           const newValue = currentValue + 1;
           
@@ -617,7 +798,7 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
           const txId = `inc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           const blockHeight = Math.floor(Date.now() / 1000);
           
-          localStorage.setItem(`contract_state_${contractAddress}`, JSON.stringify({
+          localStorage.setItem(`contract_state_${validatedAddress}`, JSON.stringify({
             data: { round: newValue }
           }));
           
@@ -636,7 +817,7 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
         },
         decrement: async () => {
           // Same implementation as deploy contract
-          const currentState = await providers.publicDataProvider.queryContractState(contractAddress);
+          const currentState = await providers.publicDataProvider.queryContractState(validatedAddress);
           const currentValue = currentState?.data?.round || 0;
           const newValue = Math.max(0, currentValue - 1);
           
@@ -645,7 +826,7 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
           const txId = `dec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           const blockHeight = Math.floor(Date.now() / 1000);
           
-          localStorage.setItem(`contract_state_${contractAddress}`, JSON.stringify({
+          localStorage.setItem(`contract_state_${validatedAddress}`, JSON.stringify({
             data: { round: newValue }
           }));
           
@@ -697,11 +878,12 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
       
       if (existingContractAddress) {
         try {
-          // Try to join existing contract
+          // Try to join existing contract with validated address
           contract = await joinExistingContract(counterProviders, existingContractAddress);
-          setContractAddress(existingContractAddress);
-          logger.info(`Joined existing contract at address: ${existingContractAddress}`);
-          showToast(`Joined contract: ${existingContractAddress.substring(0, 16)}...`, 'success');
+          const validatedAddress = validateContractAddress(existingContractAddress);
+          setContractAddress(validatedAddress);
+          logger.info(`Joined existing contract at address: ${validatedAddress}`);
+          showToast(`Joined contract: ${validatedAddress.substring(0, 16)}...`, 'success');
         } catch (error) {
           logger.warn(`Failed to join contract at ${existingContractAddress}, deploying new one`, error);
           // Deploy new contract if joining fails
@@ -773,11 +955,49 @@ export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProvi
       // Query real contract state from the blockchain
       const contractState = await providers.publicDataProvider.queryContractState(contractAddress);
       if (contractState && contractState.data) {
-        // Parse the ledger state to get the round (counter value)
-        // In the counter contract, the round represents the counter value
-        const currentCount = Number(contractState.data.round || 0);
+        // Parse the contract state data
+        // The data field contains hex-encoded state from the counter contract
+        let currentCount = 0;
+        
+        try {
+          // Try to parse the hex-encoded state data
+          // For the counter contract, the state contains the round value
+          const stateData = contractState.data;
+          
+          if (typeof stateData === 'string' && stateData.startsWith('0x')) {
+            // Hex-encoded state data from the indexer
+            // For now, we'll parse this as a basic counter value
+            // In a real implementation, this would use Counter.ledger(contractState.data).round
+            
+            // Remove '0x' prefix and convert hex to number
+            const hexValue = stateData.slice(2);
+            if (hexValue.length > 0) {
+              // Parse as big-endian integer (simplified for demo)
+              // The actual parsing would depend on the contract's state structure
+              currentCount = parseInt(hexValue.slice(-8), 16) || 0; // Take last 4 bytes as counter
+            }
+          } else if (typeof stateData === 'object') {
+            // If state is already parsed as object
+            currentCount = Number(stateData.round || stateData.count || stateData.counter || 0);
+          } else if (typeof stateData === 'string') {
+            // Try to parse as JSON
+            const parsedState = JSON.parse(stateData);
+            currentCount = Number(parsedState.round || parsedState.count || parsedState.counter || 0);
+          }
+        } catch (parseError) {
+          logger.warn('Could not parse contract state data, using default value', { 
+            parseError, 
+            stateData: contractState.data 
+          });
+          currentCount = 0;
+        }
+        
         setCount(currentCount);
-        logger.info('Loaded counter value from contract', { count: currentCount, contractAddress });
+        logger.info('Loaded counter value from contract', { 
+          count: currentCount, 
+          contractAddress, 
+          stateData: contractState.data 
+        });
       } else {
         // If contract not found, initialize with 0
         const currentCount = 0;
