@@ -1,7 +1,7 @@
 import { ThemeProvider, CssBaseline, Box } from '@mui/material';
 import { theme } from './config/theme';
-import { MidnightWalletProvider } from './components/MidnightWallet';
-import { Header, Counter, Footer, ContractInfo, ContractManager } from './components';
+import { WalletProvider } from './hooks/useWallet';
+import { Header, Counter, Footer, ContractInfo } from './components';
 import * as pino from 'pino';
 
 const logger = pino.pino({
@@ -15,7 +15,7 @@ const App = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
-      <MidnightWalletProvider logger={logger}>
+      <WalletProvider logger={logger}>
         <Box
           sx={{
             minHeight: '100vh',
@@ -35,13 +35,12 @@ const App = () => {
             }}
           >
             <Counter />
-            <ContractManager />
             <ContractInfo />
           </Box>
           
           <Footer />
         </Box>
-      </MidnightWalletProvider>
+      </WalletProvider>
     </ThemeProvider>
   );
 };

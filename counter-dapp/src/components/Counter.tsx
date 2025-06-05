@@ -8,32 +8,81 @@ import {
   CircularProgress,
   Chip,
   Divider,
+  Alert,
 } from '@mui/material';
-import { Add, Remove, Refresh } from '@mui/icons-material';
-import { useMidnightWallet } from './MidnightWallet';
+import { Add, Remove, Refresh, AccountBalanceWallet } from '@mui/icons-material';
+import { useWallet } from '../hooks/useWallet';
 
 export const Counter: React.FC = () => {
   const { 
-    isConnected, 
-    address, 
-    count, 
-    isLoading, 
-    increment, 
-    decrement, 
-    refresh 
-  } = useMidnightWallet();
+    wallet,
+    isConnecting,
+    isDeploying,
+    error,
+    connect,
+    deployContract,
+    increment,
+    decrement,
+    refresh
+  } = useWallet();
 
-  if (!isConnected) {
+  if (!wallet.isConnected) {
+    return (
+      <Box sx={{ textAlign: 'center', py: 8 }}>
+        <Card sx={{ maxWidth: 400, mx: 'auto' }}>
+          <CardContent sx={{ py: 4 }}>
+            <AccountBalanceWallet sx={{ fontSize: 48, color: 'primary.main', mb: 2 }} />
+            <Typography variant="h5" gutterBottom>
+              Connect Your Lace Wallet
+            </Typography>
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+              Connect your Midnight Lace wallet to interact with the counter contract.
+            </Typography>
+            
+            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            
+            <Button
+              variant="contained"
+              size="large"
+              onClick={connect}
+              disabled={isConnecting}
+              startIcon={isConnecting ? <CircularProgress size={20} /> : <AccountBalanceWallet />}
+            >
+              {isConnecting ? 'Connecting...' : 'Connect Lace Wallet'}
+            </Button>
+          </CardContent>
+        </Card>
+      </Box>
+    );
+  }
+
+  // If connected but no contract deployed, show deploy option
+  if (!wallet.contractAddress) {
     return (
       <Box sx={{ textAlign: 'center', py: 8 }}>
         <Card sx={{ maxWidth: 400, mx: 'auto' }}>
           <CardContent sx={{ py: 4 }}>
             <Typography variant="h5" gutterBottom>
-              Connect Your Wallet
+              Deploy Counter Contract
             </Typography>
-            <Typography variant="body1" color="text.secondary">
-              Please connect your Midnight wallet to interact with the counter contract.
+            <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
+              Wallet connected: {wallet.address?.slice(0, 10)}...
             </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
+              Deploy a new counter contract to get started.
+            </Typography>
+            
+            {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+            
+            <Button
+              variant="contained"
+              size="large"
+              color="success"
+              onClick={deployContract}
+              disabled={isDeploying}
+            >
+              {isDeploying ? <CircularProgress size={24} /> : 'Deploy Counter Contract'}
+            </Button>
           </CardContent>
         </Card>
       </Box>
@@ -59,10 +108,10 @@ export const Counter: React.FC = () => {
           {/* Counter Display */}
           <Box sx={{ mb: 4 }}>
             <Typography variant="h2" sx={{ mb: 2, fontWeight: 'bold' }}>
-              {count}
+              {wallet.count}
             </Typography>
             <Chip 
-              label={`Current Value: ${count}`}
+              label={`Current Value: ${wallet.count}`}
               color="primary"
               variant="outlined"
               sx={{ fontSize: '1rem', py: 1 }}
@@ -75,8 +124,8 @@ export const Counter: React.FC = () => {
               onClick={decrement}
               variant="outlined"
               size="large"
-              startIcon={isLoading ? <CircularProgress size={16} /> : <Remove />}
-              disabled={isLoading}
+              startIcon={isDeploying ? <CircularProgress size={16} /> : <Remove />}
+              disabled={isDeploying}
               sx={{ minWidth: 120 }}
             >
               Decrement
@@ -86,8 +135,8 @@ export const Counter: React.FC = () => {
               onClick={refresh}
               variant="outlined"
               size="large"
-              startIcon={isLoading ? <CircularProgress size={16} /> : <Refresh />}
-              disabled={isLoading}
+              startIcon={isDeploying ? <CircularProgress size={16} /> : <Refresh />}
+              disabled={isDeploying}
               sx={{ minWidth: 120 }}
             >
               Refresh
@@ -97,8 +146,8 @@ export const Counter: React.FC = () => {
               onClick={increment}
               variant="contained"
               size="large"
-              startIcon={isLoading ? <CircularProgress size={16} /> : <Add />}
-              disabled={isLoading}
+              startIcon={isDeploying ? <CircularProgress size={16} /> : <Add />}
+              disabled={isDeploying}
               sx={{ minWidth: 120 }}
             >
               Increment
@@ -108,9 +157,11 @@ export const Counter: React.FC = () => {
           {/* Status */}
           <Box sx={{ mt: 3 }}>
             <Typography variant="body2" color="text.secondary">
-              {isLoading ? 'Processing transaction...' : 'Ready for next action'}
+              {isDeploying ? 'Processing transaction...' : 'Ready for next action'}
             </Typography>
           </Box>
+
+          {error && <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>}
         </CardContent>
       </Card>
 
@@ -125,7 +176,7 @@ export const Counter: React.FC = () => {
             It demonstrates basic smart contract interactions including increment and decrement operations.
           </Typography>
           <Typography variant="body2" color="text.secondary">
-            Connected Wallet: {address}
+            Connected Wallet: {wallet.address}
           </Typography>
         </CardContent>
       </Card>

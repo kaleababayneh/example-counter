@@ -10,18 +10,27 @@ import {
   AlertTitle,
 } from '@mui/material';
 import { Info, Code, Security, AccountCircle, Key } from '@mui/icons-material';
-import { useMidnightWallet } from './MidnightWallet';
+import { useWallet } from '../hooks/useWallet';
 
 export const ContractInfo = () => {
-  const { isConnected, walletAPI } = useMidnightWallet();
+  const { wallet } = useWallet();
+
+  // Helper function to format addresses for display
+  const formatAddress = (address: string): string => {
+    if (!address) return 'Not available';
+    if (address.length > 32) {
+      return `${address.substring(0, 16)}...${address.substring(address.length - 16)}`;
+    }
+    return address;
+  };
 
   // Helper function to format public key for display
-  const formatPublicKey = (key: string): string => {
-    if (!key) return 'Not available';
-    if (key.length > 32) {
-      return `${key.substring(0, 16)}...${key.substring(key.length - 16)}`;
+  const formatPublicKey = (publicKey: string): string => {
+    if (!publicKey) return 'Not available';
+    if (publicKey.length > 32) {
+      return `${publicKey.substring(0, 16)}...${publicKey.substring(publicKey.length - 16)}`;
     }
-    return key;
+    return publicKey;
   };
 
   return (
@@ -36,14 +45,14 @@ export const ContractInfo = () => {
           <Divider sx={{ mb: 3 }} />
           
           {/* Wallet Connection Status */}
-          {isConnected && walletAPI ? (
+          {wallet.isConnected && wallet.coinPublicKey ? (
             <Alert severity="success" sx={{ mb: 3 }}>
               <AlertTitle>Wallet Connected</AlertTitle>
               <Box sx={{ mt: 1 }}>
                 <Typography variant="body2" sx={{ mb: 1 }}>
                   <strong>Coin Public Key:</strong>{' '}
                   <Box component="span" sx={{ fontFamily: 'monospace', fontSize: '0.9em' }}>
-                    {formatPublicKey(walletAPI.coinPublicKey)}
+                    {formatPublicKey(wallet.coinPublicKey)}
                   </Box>
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
@@ -84,7 +93,7 @@ export const ContractInfo = () => {
                 />
               </Box>
 
-              {isConnected && (
+              {wallet.isConnected && (
                 <Box sx={{ mb: 2 }}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                     Wallet Status
@@ -93,6 +102,20 @@ export const ContractInfo = () => {
                     icon={<AccountCircle />}
                     label="Connected"
                     color="success"
+                    variant="outlined"
+                  />
+                </Box>
+              )}
+
+              {wallet.contractAddress && (
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Contract Status
+                  </Typography>
+                  <Chip
+                    icon={<Code />}
+                    label="Deployed"
+                    color="primary"
                     variant="outlined"
                   />
                 </Box>
@@ -109,7 +132,7 @@ export const ContractInfo = () => {
                 <Chip label="getCurrentValue()" variant="outlined" size="small" />
               </Box>
 
-              {isConnected && walletAPI && (
+              {wallet.isConnected && wallet.coinPublicKey && (
                 <Box sx={{ mt: 3 }}>
                   <Typography variant="subtitle2" color="text.secondary" gutterBottom>
                     Wallet Public Key
@@ -136,7 +159,60 @@ export const ContractInfo = () => {
                         color: 'text.primary'
                       }}
                     >
-                      {walletAPI.coinPublicKey}
+                      {wallet.coinPublicKey}
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+
+              {wallet.contractAddress && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Contract Address
+                  </Typography>
+                  <Box sx={{ 
+                    p: 2, 
+                    bgcolor: 'grey.100', 
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'grey.300'
+                  }}>
+                    <Typography 
+                      variant="body2" 
+                      sx={{ 
+                        fontFamily: 'monospace',
+                        fontSize: '0.8em',
+                        wordBreak: 'break-all',
+                        color: 'text.primary'
+                      }}
+                    >
+                      {formatAddress(wallet.contractAddress)}
+                    </Typography>
+                  </Box>
+                </Box>
+              )}
+
+              {wallet.contractAddress && (
+                <Box sx={{ mt: 3 }}>
+                  <Typography variant="subtitle2" color="text.secondary" gutterBottom>
+                    Current Count
+                  </Typography>
+                  <Box sx={{ 
+                    p: 2, 
+                    bgcolor: 'primary.50', 
+                    borderRadius: 1,
+                    border: '1px solid',
+                    borderColor: 'primary.200'
+                  }}>
+                    <Typography 
+                      variant="h4" 
+                      sx={{ 
+                        fontFamily: 'monospace',
+                        textAlign: 'center',
+                        color: 'primary.main'
+                      }}
+                    >
+                      {wallet.count}
                     </Typography>
                   </Box>
                 </Box>
@@ -149,7 +225,7 @@ export const ContractInfo = () => {
           <Typography variant="body2" color="text.secondary">
             This smart contract demonstrates basic state management on the Midnight Network 
             using zero-knowledge proofs for privacy-preserving computation.
-            {isConnected && ' Your wallet is connected and ready for transactions.'}
+            {wallet.isConnected && ' Your wallet is connected and ready for transactions.'}
           </Typography>
         </CardContent>
       </Card>

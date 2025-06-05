@@ -16,10 +16,10 @@ import {
   Divider,
 } from '@mui/material';
 import { Add, Link, Launch, ContentCopy } from '@mui/icons-material';
-import { useMidnightWallet } from './MidnightWallet';
+import { useWallet } from '../hooks/useWallet';
 
 export const ContractManager = () => {
-  const { isConnected, contractAddress, deployContract, joinContract } = useMidnightWallet();
+  const { wallet, deployContract } = useWallet();
   const [isDeployDialogOpen, setIsDeployDialogOpen] = useState(false);
   const [isJoinDialogOpen, setIsJoinDialogOpen] = useState(false);
   const [joinContractAddress, setJoinContractAddress] = useState('');
