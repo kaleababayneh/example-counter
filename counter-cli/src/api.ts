@@ -106,6 +106,14 @@ export const increment = async (counterContract: DeployedCounterContract): Promi
   return finalizedTxData.public;
 };
 
+export const decrement = async (counterContract: DeployedCounterContract): Promise<FinalizedTxData> => {
+  logger.info('Incrementing...');
+  const finalizedTxData = await counterContract.callTx.decrement();
+  logger.info(`Transaction ${finalizedTxData.public.txId} added in block ${finalizedTxData.public.blockHeight}`);
+  return finalizedTxData.public;
+};
+
+
 export const displayCounterValue = async (
   providers: CounterProviders,
   counterContract: DeployedCounterContract,
@@ -332,6 +340,8 @@ export const configureProviders = async (wallet: Wallet & Resource, config: Conf
     midnightProvider: walletAndMidnightProvider,
   };
 };
+
+
 
 export function setLogger(_logger: Logger) {
   logger = _logger;

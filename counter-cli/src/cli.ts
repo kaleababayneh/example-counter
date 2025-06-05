@@ -43,6 +43,7 @@ You can do one of the following:
   1. Increment
   2. Display current counter value
   3. Exit
+  4. Decrement
 Which would you like to do? `;
 
 const join = async (providers: CounterProviders, rli: Interface): Promise<DeployedCounterContract> => {
@@ -84,6 +85,9 @@ const mainLoop = async (providers: CounterProviders, rli: Interface): Promise<vo
       case '3':
         logger.info('Exiting...');
         return;
+      case '4':
+        await api.decrement(counterContract);
+        break;
       default:
         logger.error(`Invalid choice: ${choice}`);
     }
