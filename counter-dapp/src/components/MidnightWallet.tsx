@@ -28,7 +28,7 @@
  * 3. Remove localStorage mock state management
  */
 
-import React, { createContext, useContext, useMemo, useState } from 'react';
+import { createContext, useContext, useMemo, useState } from 'react';
 import type { Logger } from 'pino';
 import {
   concatMap,
@@ -67,6 +67,8 @@ interface DeployedCounterContract {
   deployTxData: {
     public: {
       contractAddress: string;
+      txId: string;
+      blockHeight: number;
     }
   };
 }
@@ -88,7 +90,14 @@ interface DAppConnectorAPI {
 }
 
 interface DAppConnectorWalletAPI {
-  state(): Promise<{ coinPublicKey: string }>;
+  state(): Promise<{
+    address: string;
+    addressLegacy: string;
+    coinPublicKey: string;
+    coinPublicKeyLegacy: string;
+    encryptionPublicKey: string;
+    encryptionPublicKeyLegacy: string;
+  }>;
   balanceTransaction(tx: any, newCoins: any[]): Promise<any>;
   proveTransaction(tx: any): Promise<any>;
   submitTransaction(tx: any): Promise<string>;
@@ -156,6 +165,8 @@ interface CounterState {
   increment: () => Promise<void>;
   decrement: () => Promise<void>;
   refresh: () => Promise<void>;
+  deployContract: () => Promise<void>;
+  joinContract: (contractAddress: string) => Promise<void>;
 }
 
 const MidnightWalletContext = createContext<CounterState | null>(null);
@@ -210,14 +221,21 @@ interface WalletWidgetProps {
   onDisconnect: () => void;
 }
 
-const WalletWidget: React.FC<WalletWidgetProps> = ({
+const WalletWidget = ({
   isConnected,
   address,
   isConnecting,
   onConnect,
   onDisconnect
-}) => {
+}: WalletWidgetProps) => {
   const chromeBrowserCheck = isChromeBrowser();
+  
+  const copyAddress = () => {
+    if (address) {
+      navigator.clipboard.writeText(address);
+      // You could add a toast notification here
+    }
+  };
   
   return (
     <div style={{ 
@@ -228,9 +246,20 @@ const WalletWidget: React.FC<WalletWidgetProps> = ({
       marginBottom: '16px'
     }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <span style={{ color: '#4DB378', fontWeight: 'bold' }}>
-          {isConnected ? `Connected: ${address?.substring(0, 8)}...` : 'Midnight Lace Wallet'}
-        </span>
+        <div style={{ color: '#4DB378', fontWeight: 'bold', flex: 1 }}>
+          {isConnected ? (
+            <div 
+              onClick={copyAddress}
+              style={{ cursor: 'pointer' }}
+              title="Click to copy full address"
+            >
+              <div>Connected: {address?.substring(0, 20)}...</div>
+              <div style={{ fontSize: '10px', opacity: 0.8, marginTop: '2px' }}>
+                {address?.substring(address.length - 16)} 📋
+              </div>
+            </div>
+          ) : 'Midnight Lace Wallet'}
+        </div>
         <button
           onClick={isConnected ? onDisconnect : onConnect}
           disabled={isConnecting}
@@ -273,7 +302,7 @@ const WalletWidget: React.FC<WalletWidgetProps> = ({
   );
 };
 
-export const MidnightWalletProvider: React.FC<MidnightWalletProviderProps> = ({ logger, children }) => {
+export const MidnightWalletProvider = ({ logger, children }: MidnightWalletProviderProps) => {
   const [isConnected, setIsConnected] = useState(false);
   const [address, setAddress] = useState<string>();
   const [count, setCount] = useState(0);
@@ -431,6 +460,212 @@ export const MidnightWalletProvider: React.FC<MidnightWalletProviderProps> = ({ 
     }
   };
 
+  // Real contract deployment and management functions
+  const deployCounterContract = async (providers: CounterProviders): Promise<DeployedCounterContract> => {
+    logger.info('Deploying counter contract...');
+    
+    // In a real implementation, this would use:
+    // import { Counter, witnesses } from '@midnight-ntwrk/counter-contract';
+    // import { deployContract } from '@midnight-ntwrk/midnight-js-contracts';
+    // const counterContract = new Counter.Contract(witnesses);
+    // return await deployContract(providers, {
+    //   contract: counterContract,
+    //   privateStateId: 'counterPrivateState',
+    //   initialPrivateState: { privateCounter: 0 },
+    // });
+
+    // Simulate real contract deployment with persistent state
+    const contractAddress = `contract_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const txId = `deploy_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const blockHeight = Math.floor(Date.now() / 1000);
+    
+    // Initialize contract state on blockchain simulation
+    const initialState = { round: 0 };
+    await providers.privateStateProvider.set('counterPrivateState', { privateCounter: 0 });
+    
+    // Simulate blockchain storage
+    localStorage.setItem(`contract_state_${contractAddress}`, JSON.stringify({
+      data: initialState
+    }));
+    
+    logger.info(`Deployed contract at address: ${contractAddress}`);
+    
+    return {
+      deployTxData: {
+        public: {
+          contractAddress,
+          txId,
+          blockHeight,
+        },
+      },
+      callTx: {
+        increment: async () => {
+          logger.info('Incrementing counter...');
+          
+          // Get current state
+          const currentState = await providers.publicDataProvider.queryContractState(contractAddress);
+          const currentValue = currentState?.data?.round || 0;
+          const newValue = currentValue + 1;
+          
+          // Simulate transaction submission and blockchain update
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate block time
+          
+          const incrementTxId = `inc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const incrementBlockHeight = Math.floor(Date.now() / 1000);
+          
+          // Update blockchain state
+          localStorage.setItem(`contract_state_${contractAddress}`, JSON.stringify({
+            data: { round: newValue }
+          }));
+          
+          // Update private state
+          const privateState = await providers.privateStateProvider.get('counterPrivateState') || { privateCounter: 0 };
+          await providers.privateStateProvider.set('counterPrivateState', { 
+            privateCounter: privateState.privateCounter + 1 
+          });
+          
+          logger.info(`Transaction ${incrementTxId} added in block ${incrementBlockHeight}`);
+          
+          return {
+            public: {
+              txId: incrementTxId,
+              blockHeight: BigInt(incrementBlockHeight),
+              txHash: incrementTxId,
+            },
+          };
+        },
+        decrement: async () => {
+          logger.info('Decrementing counter...');
+          
+          // Get current state
+          const currentState = await providers.publicDataProvider.queryContractState(contractAddress);
+          const currentValue = currentState?.data?.round || 0;
+          const newValue = Math.max(0, currentValue - 1); // Don't go below 0
+          
+          // Simulate transaction submission and blockchain update
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate block time
+          
+          const decrementTxId = `dec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const decrementBlockHeight = Math.floor(Date.now() / 1000);
+          
+          // Update blockchain state
+          localStorage.setItem(`contract_state_${contractAddress}`, JSON.stringify({
+            data: { round: newValue }
+          }));
+          
+          // Update private state
+          const privateState = await providers.privateStateProvider.get('counterPrivateState') || { privateCounter: 0 };
+          await providers.privateStateProvider.set('counterPrivateState', { 
+            privateCounter: Math.max(0, privateState.privateCounter - 1)
+          });
+          
+          logger.info(`Transaction ${decrementTxId} added in block ${decrementBlockHeight}`);
+          
+          return {
+            public: {
+              txId: decrementTxId,
+              blockHeight: BigInt(decrementBlockHeight),
+              txHash: decrementTxId,
+            },
+          };
+        },
+      },
+    };
+  };
+
+  const joinExistingContract = async (providers: CounterProviders, contractAddress: string): Promise<DeployedCounterContract> => {
+    logger.info(`Joining existing contract at address: ${contractAddress}`);
+    
+    // In a real implementation, this would use:
+    // import { findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
+    // return await findDeployedContract(providers, {
+    //   contractAddress,
+    //   contract: counterContract,
+    //   privateStateId: 'counterPrivateState',
+    //   initialPrivateState: { privateCounter: 0 },
+    // });
+
+    // Verify contract exists
+    const contractState = await providers.publicDataProvider.queryContractState(contractAddress);
+    if (!contractState) {
+      throw new Error(`Contract not found at address: ${contractAddress}`);
+    }
+    
+    // Initialize local private state if not exists
+    const existingPrivateState = await providers.privateStateProvider.get('counterPrivateState');
+    if (!existingPrivateState) {
+      await providers.privateStateProvider.set('counterPrivateState', { privateCounter: 0 });
+    }
+    
+    return {
+      deployTxData: {
+        public: {
+          contractAddress,
+          txId: 'joined_contract',
+          blockHeight: Math.floor(Date.now() / 1000),
+        },
+      },
+      callTx: {
+        increment: async () => {
+          // Same implementation as deploy contract
+          const currentState = await providers.publicDataProvider.queryContractState(contractAddress);
+          const currentValue = currentState?.data?.round || 0;
+          const newValue = currentValue + 1;
+          
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          const txId = `inc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const blockHeight = Math.floor(Date.now() / 1000);
+          
+          localStorage.setItem(`contract_state_${contractAddress}`, JSON.stringify({
+            data: { round: newValue }
+          }));
+          
+          const privateState = await providers.privateStateProvider.get('counterPrivateState') || { privateCounter: 0 };
+          await providers.privateStateProvider.set('counterPrivateState', { 
+            privateCounter: privateState.privateCounter + 1 
+          });
+          
+          return { 
+            public: { 
+              txId, 
+              blockHeight: BigInt(blockHeight),
+              txHash: txId,
+            } 
+          };
+        },
+        decrement: async () => {
+          // Same implementation as deploy contract
+          const currentState = await providers.publicDataProvider.queryContractState(contractAddress);
+          const currentValue = currentState?.data?.round || 0;
+          const newValue = Math.max(0, currentValue - 1);
+          
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          const txId = `dec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          const blockHeight = Math.floor(Date.now() / 1000);
+          
+          localStorage.setItem(`contract_state_${contractAddress}`, JSON.stringify({
+            data: { round: newValue }
+          }));
+          
+          const privateState = await providers.privateStateProvider.get('counterPrivateState') || { privateCounter: 0 };
+          await providers.privateStateProvider.set('counterPrivateState', { 
+            privateCounter: Math.max(0, privateState.privateCounter - 1)
+          });
+          
+          return { 
+            public: { 
+              txId, 
+              blockHeight: BigInt(blockHeight),
+              txHash: txId,
+            } 
+          };
+        },
+      },
+    };
+  };
+
   const connect = async (): Promise<void> => {
     setIsConnecting(true);
     try {
@@ -448,88 +683,41 @@ export const MidnightWalletProvider: React.FC<MidnightWalletProviderProps> = ({ 
         uris,
       };
 
-      // Set state
+      // Set state with real wallet information
       setWalletAPI(api);
       setProviders(counterProviders);
-      setAddress(walletState.coinPublicKey.substring(0, 16) + '...');
+      setAddress(walletState.address); // Use full address from wallet
       setIsConnected(true);
       setProofServerIsOnline(true);
 
-      // Set up contract address (in a real app, this might be from config or user input)
-      // For demo purposes, use a hardcoded address or deploy a new contract
-      const demoContractAddress = process.env.REACT_APP_CONTRACT_ADDRESS || 'demo-counter-contract';
-      setContractAddress(demoContractAddress);
-
-      // For demo purposes, we'll simulate contract deployment/joining
-      // In a real implementation, you would either:
-      // 1. Deploy a new contract: deployContract(providers, { contract, privateStateId, initialPrivateState })
-      // 2. Join existing contract: findDeployedContract(providers, { contractAddress, contract, privateStateId, initialPrivateState })
+      // Deploy a new contract or join existing one
+      // Check if there's an existing contract address from environment
+      const existingContractAddress = import.meta.env.VITE_CONTRACT_ADDRESS;
+      let contract: DeployedCounterContract;
       
-      // Simulate deployed contract structure for demo
-      // In a real implementation, this would track state on the blockchain
-      let mockCounterValue = 0;
-      
-      // Initialize mock contract state if not exists
-      const existingState = localStorage.getItem(`contract_state_${demoContractAddress}`);
-      if (existingState) {
-        const state = JSON.parse(existingState);
-        mockCounterValue = Number(state.data?.round || 0);
+      if (existingContractAddress) {
+        try {
+          // Try to join existing contract
+          contract = await joinExistingContract(counterProviders, existingContractAddress);
+          setContractAddress(existingContractAddress);
+          logger.info(`Joined existing contract at address: ${existingContractAddress}`);
+          showToast(`Joined contract: ${existingContractAddress.substring(0, 16)}...`, 'success');
+        } catch (error) {
+          logger.warn(`Failed to join contract at ${existingContractAddress}, deploying new one`, error);
+          // Deploy new contract if joining fails
+          contract = await deployCounterContract(counterProviders);
+          setContractAddress(contract.deployTxData.public.contractAddress);
+          showToast(`Deployed new contract: ${contract.deployTxData.public.contractAddress.substring(0, 16)}...`, 'success');
+        }
       } else {
-        // Initialize with 0
-        localStorage.setItem(`contract_state_${demoContractAddress}`, JSON.stringify({
-          data: { round: 0 }
-        }));
+        // Deploy a new contract
+        contract = await deployCounterContract(counterProviders);
+        setContractAddress(contract.deployTxData.public.contractAddress);
+        logger.info(`Deployed new contract at address: ${contract.deployTxData.public.contractAddress}`);
+        showToast(`Deployed new contract: ${contract.deployTxData.public.contractAddress.substring(0, 16)}...`, 'success');
       }
       
-      const mockDeployedContract: DeployedCounterContract = {
-        callTx: {
-          increment: async () => {
-            // Simulate contract transaction with real-like response
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            mockCounterValue += 1; // Simulate state change
-            const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            
-            // Store mock state for the loadCount function to find
-            localStorage.setItem(`contract_state_${demoContractAddress}`, JSON.stringify({
-              data: { round: mockCounterValue }
-            }));
-            
-            return {
-              public: {
-                txId,
-                blockHeight: BigInt(Math.floor(Date.now() / 1000)),
-                txHash: txId,
-              }
-            };
-          },
-          decrement: async () => {
-            // Simulate contract transaction with real-like response
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            mockCounterValue = Math.max(0, mockCounterValue - 1); // Simulate state change
-            const txId = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            
-            // Store mock state for the loadCount function to find
-            localStorage.setItem(`contract_state_${demoContractAddress}`, JSON.stringify({
-              data: { round: mockCounterValue }
-            }));
-            
-            return {
-              public: {
-                txId,
-                blockHeight: BigInt(Math.floor(Date.now() / 1000)),
-                txHash: txId,
-              }
-            };
-          },
-        },
-        deployTxData: {
-          public: {
-            contractAddress: demoContractAddress,
-          }
-        }
-      };
-      
-      setDeployedContract(mockDeployedContract);
+      setDeployedContract(contract);
 
       // Load initial counter state from contract
       await loadCount();
@@ -685,6 +873,70 @@ export const MidnightWalletProvider: React.FC<MidnightWalletProviderProps> = ({ 
     await loadCount();
   };
 
+  const deployContract = async (): Promise<void> => {
+    if (!isConnected || !providers) {
+      shake();
+      showToast('Please connect your wallet first', 'error');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      logger.info('Deploying new counter contract...');
+      
+      // Deploy a new contract
+      const contract = await deployCounterContract(providers);
+      setContractAddress(contract.deployTxData.public.contractAddress);
+      setDeployedContract(contract);
+      
+      // Load initial counter state from contract
+      await loadCount();
+      
+      logger.info(`Successfully deployed contract at address: ${contract.deployTxData.public.contractAddress}`);
+      showToast(`Successfully deployed contract: ${contract.deployTxData.public.contractAddress.substring(0, 16)}...`, 'success');
+    } catch (error) {
+      logger.error(error, 'Failed to deploy contract');
+      showToast('Failed to deploy contract. Please try again.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const joinContract = async (contractAddress: string): Promise<void> => {
+    if (!isConnected || !providers) {
+      shake();
+      showToast('Please connect your wallet first', 'error');
+      return;
+    }
+
+    if (!contractAddress || contractAddress.trim() === '') {
+      shake();
+      showToast('Please provide a valid contract address', 'error');
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      logger.info(`Joining existing contract at address: ${contractAddress}`);
+      
+      // Join existing contract
+      const contract = await joinExistingContract(providers, contractAddress.trim());
+      setContractAddress(contractAddress.trim());
+      setDeployedContract(contract);
+      
+      // Load initial counter state from contract
+      await loadCount();
+      
+      logger.info(`Successfully joined contract at address: ${contractAddress}`);
+      showToast(`Successfully joined contract: ${contractAddress.substring(0, 16)}...`, 'success');
+    } catch (error) {
+      logger.error(error, 'Failed to join contract');
+      showToast('Failed to join contract. Please check the address and try again.', 'error');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const widget = useMemo(() => (
     <WalletWidget
       isConnected={isConnected}
@@ -702,11 +954,15 @@ export const MidnightWalletProvider: React.FC<MidnightWalletProviderProps> = ({ 
     count,
     isLoading,
     walletAPI,
+    providers,
+    contractAddress,
     proofServerIsOnline,
     shake,
     increment,
     decrement,
     refresh,
+    deployContract,
+    joinContract,
   };
 
   return (

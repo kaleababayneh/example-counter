@@ -1,4 +1,4 @@
-import React from 'react';
+import * as React from 'react';
 import { Box, Typography, Link } from '@mui/material';
 
 export const Footer: React.FC = () => {

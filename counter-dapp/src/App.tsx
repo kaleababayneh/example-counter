@@ -1,8 +1,7 @@
-import React from 'react';
 import { ThemeProvider, CssBaseline, Box } from '@mui/material';
 import { theme } from './config/theme';
 import { MidnightWalletProvider } from './components/MidnightWallet';
-import { Header, Counter, Footer, ContractInfo } from './components';
+import { Header, Counter, Footer, ContractInfo, ContractManager } from './components';
 import * as pino from 'pino';
 
 const logger = pino.pino({
@@ -12,7 +11,7 @@ const logger = pino.pino({
   },
 });
 
-const App: React.FC = () => {
+const App = () => {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
@@ -36,6 +35,7 @@ const App: React.FC = () => {
             }}
           >
             <Counter />
+            <ContractManager />
             <ContractInfo />
           </Box>
           

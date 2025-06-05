@@ -5,6 +5,7 @@
   "type": "module",
   "workspaces": [
     "counter-cli",
+    "counter-dapp",
     "contract"
   ],
   "devDependencies": {

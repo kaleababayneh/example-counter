@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import * as React from 'react';
+import  { createContext, useContext, useState, useCallback } from 'react';
 import type { Logger } from 'pino';
 
 // Mock wallet types for now - these would normally come from the Midnight SDK

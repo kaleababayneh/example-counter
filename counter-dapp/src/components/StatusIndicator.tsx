@@ -1,8 +1,7 @@
-import React from 'react';
+import { FC } from 'react';
 import {
   Box,
   Chip,
-  Typography,
 } from '@mui/material';
 import { 
   CheckCircle, 
@@ -16,7 +15,7 @@ interface StatusIndicatorProps {
   error?: string;
 }
 
-export const StatusIndicator: React.FC<StatusIndicatorProps> = ({
+export const StatusIndicator: FC<StatusIndicatorProps> = ({
   isConnected,
   isLoading = false,
   error
