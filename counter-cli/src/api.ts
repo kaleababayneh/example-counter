@@ -1,10 +1,13 @@
 import { type ContractAddress } from '@midnight-ntwrk/compact-runtime';
-import { Counter, type CounterPrivateState, witnesses } from '@midnight-ntwrk/counter-contract';
+import { Zkvote, witnesses } from '@midnight-ntwrk/counter-contract';
 import { type CoinInfo, nativeToken, Transaction, type TransactionId } from '@midnight-ntwrk/ledger';
 import { deployContract, findDeployedContract } from '@midnight-ntwrk/midnight-js-contracts';
 import { httpClientProofProvider } from '@midnight-ntwrk/midnight-js-http-client-proof-provider';
 import { indexerPublicDataProvider } from '@midnight-ntwrk/midnight-js-indexer-public-data-provider';
+import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
 import { NodeZkConfigProvider } from '@midnight-ntwrk/midnight-js-node-zk-config-provider';
+import { assertIsContractAddress, toHex } from '@midnight-ntwrk/midnight-js-utils';
+import { getLedgerNetworkId, getZswapNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
 import {
   type BalancedTransaction,
   createBalancedTx,
@@ -20,18 +23,16 @@ import { webcrypto } from 'crypto';
 import { type Logger } from 'pino';
 import * as Rx from 'rxjs';
 import { WebSocket } from 'ws';
+import * as fsAsync from 'node:fs/promises';
+import * as fs from 'node:fs';
 import {
   type CounterContract,
+  type CounterPrivateState,
   type CounterPrivateStateId,
   type CounterProviders,
   type DeployedCounterContract,
 } from './common-types';
 import { type Config, contractConfig } from './config';
-import { levelPrivateStateProvider } from '@midnight-ntwrk/midnight-js-level-private-state-provider';
-import { assertIsContractAddress, toHex } from '@midnight-ntwrk/midnight-js-utils';
-import { getLedgerNetworkId, getZswapNetworkId } from '@midnight-ntwrk/midnight-js-network-id';
-import * as fsAsync from 'node:fs/promises';
-import * as fs from 'node:fs';
 
 let logger: Logger;
 // Instead of setting globalThis.crypto which is read-only, we'll ensure crypto is available
@@ -42,17 +43,55 @@ globalThis.WebSocket = WebSocket;
 export const getCounterLedgerState = async (
   providers: CounterProviders,
   contractAddress: ContractAddress,
-): Promise<any | null> => {
+): Promise<bigint | null> => {
   assertIsContractAddress(contractAddress);
   logger.info('Checking contract ledger state...');
   const state = await providers.publicDataProvider
     .queryContractState(contractAddress)
-    .then((contractState) => (contractState != null ? Counter.ledger(contractState.data).items : null))
+    .then((contractState) => (contractState != null ? Zkvote.ledger(contractState.data).round : null))
   logger.info(`Ledger state: ${state}`);
   return state;
 };
 
-export const counterContractInstance: CounterContract = new Counter.Contract(witnesses);
+export const getVotesA = async (
+  providers: CounterProviders,
+  contractAddress: ContractAddress,
+): Promise<bigint | null> => {
+  assertIsContractAddress(contractAddress);
+  logger.info('Checking votes A...');
+  const votes = await providers.publicDataProvider
+    .queryContractState(contractAddress)
+    .then((contractState) => (contractState != null ? Zkvote.ledger(contractState.data).votesA : null))
+  logger.info(`Votes A: ${votes}`);
+  return votes;
+};
+
+export const getVotesB = async (
+  providers: CounterProviders,
+  contractAddress: ContractAddress,
+): Promise<bigint | null> => {
+  assertIsContractAddress(contractAddress);
+  logger.info('Checking votes B...');
+  const votes = await providers.publicDataProvider
+    .queryContractState(contractAddress)
+    .then((contractState) => (contractState != null ? Zkvote.ledger(contractState.data).votesB : null))
+  logger.info(`Votes B: ${votes}`);
+  return votes;
+};
+
+export const getVotingResults = async (
+  providers: CounterProviders,
+  contractAddress: ContractAddress,
+): Promise<{ votesA: bigint | null; votesB: bigint | null; total: bigint }> => {
+  const votesA = await getVotesA(providers, contractAddress);
+  const votesB = await getVotesB(providers, contractAddress);
+  const total = (votesA || 0n) + (votesB || 0n);
+  
+  logger.info(`Voting results - A: ${votesA}, B: ${votesB}, Total: ${total}`);
+  return { votesA, votesB, total };
+};
+
+export const counterContractInstance: CounterContract = new Zkvote.Contract(witnesses);
 
 export const joinContract = async (
   providers: CounterProviders,
@@ -89,10 +128,19 @@ export const increment = async (counterContract: DeployedCounterContract): Promi
   return finalizedTxData.public;
 };
 
-export const decrement = async (counterContract: DeployedCounterContract): Promise<FinalizedTxData> => {
-  logger.info('Incrementing...');
-  const finalizedTxData = await counterContract.callTx.decrement();
-  logger.info(`Transaction ${finalizedTxData.public.txId} added in block ${finalizedTxData.public.blockHeight}`);
+
+
+export const voteForOptionA = async (counterContract: DeployedCounterContract): Promise<FinalizedTxData> => {
+  logger.info('Voting for Option A...');
+  const finalizedTxData = await counterContract.callTx.vote_for(0n);
+  logger.info(`Vote A transaction ${finalizedTxData.public.txId} added in block ${finalizedTxData.public.blockHeight}`);
+  return finalizedTxData.public;
+};
+
+export const voteForOptionB = async (counterContract: DeployedCounterContract): Promise<FinalizedTxData> => {
+  logger.info('Voting for Option B...');
+  const finalizedTxData = await counterContract.callTx.vote_for(1n);
+  logger.info(`Vote B transaction ${finalizedTxData.public.txId} added in block ${finalizedTxData.public.blockHeight}`);
   return finalizedTxData.public;
 };
 
@@ -109,6 +157,22 @@ export const displayCounterValue = async (
     logger.info(`Current counter value: ${Number(counterValue)}`);
   }
   return { contractAddress, counterValue };
+};
+
+export const displayVotingResults = async (
+  providers: CounterProviders,
+  counterContract: DeployedCounterContract,
+): Promise<{ votesA: bigint | null; votesB: bigint | null; total: bigint; contractAddress: string }> => {
+  const contractAddress = counterContract.deployTxData.public.contractAddress;
+  const results = await getVotingResults(providers, contractAddress);
+  
+  logger.info(`=== Voting Results ===`);
+  logger.info(`Contract Address: ${contractAddress}`);
+  logger.info(`Option A: ${results.votesA || 0n} votes`);
+  logger.info(`Option B: ${results.votesB || 0n} votes`);
+  logger.info(`Total: ${results.total} votes`);
+  
+  return { ...results, contractAddress };
 };
 
 export const createWalletAndMidnightProvider = async (wallet: Wallet): Promise<WalletProvider & MidnightProvider> => {
@@ -317,7 +381,7 @@ export const configureProviders = async (wallet: Wallet & Resource, config: Conf
       privateStateStoreName: contractConfig.privateStateStoreName,
     }),
     publicDataProvider: indexerPublicDataProvider(config.indexer, config.indexerWS),
-    zkConfigProvider: new NodeZkConfigProvider<'increment'>(contractConfig.zkConfigPath),
+    zkConfigProvider: new NodeZkConfigProvider<'increment' | 'vote_for'>(contractConfig.zkConfigPath),
     proofProvider: httpClientProofProvider(config.proofServer),
     walletProvider: walletAndMidnightProvider,
     midnightProvider: walletAndMidnightProvider,

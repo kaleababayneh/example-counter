@@ -1,4 +1,4 @@
-import { Ledger } from './managed/counter/contract/index.cjs';
+import { Ledger } from './managed/zkvote/contract/index.cjs';
 import { WitnessContext } from '@midnight-ntwrk/compact-runtime';
 
 

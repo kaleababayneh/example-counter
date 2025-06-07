@@ -1,2 +1,2 @@
-export * as Counter from "./managed/counter/contract/index.cjs";
+export * as Zkvote  from "./managed/zkvote/contract/index.cjs";
 export * from "./witnesses";

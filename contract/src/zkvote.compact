@@ -2,27 +2,13 @@ pragma language_version 0.15;
 
 import CompactStandardLibrary;
 
-// public state
 export ledger round: Counter;
 export ledger votesA: Counter;
 export ledger votesB: Counter;
 export ledger items: Set<Bytes<32>>;
-//witness local_secret_key(): Bytes<32>;
 
-
-// witness function to access the user's secret key
-// Function to generate a public key from a secret key
-
-// transition function changing public state
 export circuit increment(): [] {
   round.increment(1);
-}
-
-export circuit decrement(): [] {
-  const secret_key = "123";
-  const instance = "000";
-  items.insert(public_key_vote(secret_key, instance));
-  round.decrement(1);
 }
 
 export circuit vote_for(index: Uint<8>): [] {
@@ -30,9 +16,9 @@ export circuit vote_for(index: Uint<8>): [] {
   // make sure it has not been voted for before
   const secret_key = "123";
   const instance = "000";
-  if (items.member(public_key_vote("123", "000"))) {
-    return [];
-  }     
+ 
+
+  assert !items.member(public_key_vote(secret_key, instance)) "Already voted";
 
   items.insert(public_key_vote(secret_key, instance));
 
