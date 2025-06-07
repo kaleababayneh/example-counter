@@ -1,5 +1,19 @@
+import { Ledger } from './managed/counter/contract/index.cjs';
+import { WitnessContext } from '@midnight-ntwrk/compact-runtime';
+
+
+
 export type CounterPrivateState = {
-  privateCounter: number;
+  readonly privateCounter: number; 
 };
 
-export const witnesses = {};
+export const createCounterPrivateState = (privateCounter: number) => ({
+  privateCounter,
+});
+
+export const witnesses = {
+  // local_secret_key: ({ privateState }: WitnessContext<Ledger, CounterPrivateState>): [CounterPrivateState, Uint8Array] => [
+  //   privateState, 
+  //   privateState.privateCounter, 
+  // ],
+};
